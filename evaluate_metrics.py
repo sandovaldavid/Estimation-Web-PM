@@ -1,61 +1,71 @@
 import numpy as np
 from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    mean_squared_error, r2_score, mean_absolute_error
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    mean_squared_error,
+    r2_score,
+    mean_absolute_error,
 )
 from sklearn.model_selection import train_test_split
 import pandas as pd
 import tensorflow as tf
 import joblib
-import json
-import os
-from datetime import datetime
+from sklearn.preprocessing import StandardScaler
 
 
 def load_and_preprocess_data():
     """Carga y preprocesa los datos para evaluación"""
     try:
         # Cargar datos
-        data = pd.read_csv("estimacion_tiempos.csv")
+        df = pd.read_csv("estimacion_tiempos.csv")
 
-        # Calcular estadísticas por requerimiento
+        # Calcular estadísticas de requerimientos
         req_stats = (
-            data.groupby("idrequerimiento")
+            df.groupby("idrequerimiento")
             .agg(
-                {
-                    "complejidad": ["mean", "max", "count"],
-                    "duracion": "sum",
-                    "prioridad": "mean",
-                }
+                {"complejidad": ["mean", "max"], "prioridad": "mean", "duracion": "sum"}
             )
             .reset_index()
         )
 
-        # Renombrar columnas agregadas
         req_stats.columns = [
             "idrequerimiento",
             "complejidad_media_req",
             "complejidad_max_req",
-            "num_tareas_req",
-            "duracion_total_req",
             "prioridad_media_req",
+            "duracion_total_req",
         ]
 
+        # Añadir número de tareas por requerimiento
+        tareas_por_req = (
+            df.groupby("idrequerimiento").size().reset_index(name="num_tareas_req")
+        )
+        req_stats = req_stats.merge(tareas_por_req, on="idrequerimiento")
+
         # Unir con datos originales
-        data = data.merge(req_stats, on="idrequerimiento")
+        df = df.merge(req_stats, on="idrequerimiento")
 
         # Separar features
-        X_numeric = data[["complejidad", "prioridad"]].values
-        X_task = data["tipo_tarea"].values
-        X_req = data[
+        X_numeric = df[["complejidad", "prioridad"]].values
+        X_task = df["tipo_tarea"].values
+        X_req = df[
             [
-                "complejidad_media_req",
-                "complejidad_max_req",
                 "num_tareas_req",
                 "prioridad_media_req",
+                "complejidad_media_req",
+                "complejidad_max_req",
             ]
         ].values
-        y = data["duracion"].values
+        y = df["duracion"].values
+
+        print("\nEstadísticas del dataset:")
+        print(f"Número total de requerimientos: {df['idrequerimiento'].nunique()}")
+        print(f"Número total de tareas: {len(df)}")
+        print(f"Promedio de duración: {y.mean():.2f} horas")
+        print(f"Mediana de duración: {np.median(y):.2f} horas")
+        print(f"Desviación estándar: {y.std():.2f} horas")
 
         # Dividir datos
         (
@@ -71,13 +81,6 @@ def load_and_preprocess_data():
             X_numeric, X_task, X_req, y, test_size=0.2, random_state=42
         )
 
-        print("\nEstadísticas del dataset:")
-        print(f"Número total de requerimientos: {data['idrequerimiento'].nunique()}")
-        print(f"Número total de tareas: {len(data)}")
-        print(f"Promedio de duración: {y.mean():.2f} horas")
-        print(f"Mediana de duración: {np.median(y):.2f} horas")
-        print(f"Desviación estándar: {y.std():.2f} horas")
-
         return {
             "train": [X_num_train, X_req_train, X_task_train, y_train],
             "test": [X_num_test, X_req_test, X_task_test, y_test],
@@ -87,18 +90,21 @@ def load_and_preprocess_data():
         print(f"Error en carga de datos: {str(e)}")
         return None
 
-def calculate_metrics(y_true, y_pred, threshold=0.1):
-    """Calcula métricas de rendimiento"""
+
+def calculate_metrics(y_true, y_pred):
+    """Calcula múltiples métricas de evaluación"""
+
     # Métricas de regresión
     mse = mean_squared_error(y_true, y_pred)
     rmse = np.sqrt(mse)
     mae = mean_absolute_error(y_true, y_pred)
     r2 = r2_score(y_true, y_pred)
 
-    # Convertir a clasificación binaria para métricas adicionales
-    y_true_class = (y_true >= np.mean(y_true)).astype(int)
-    y_pred_class = (y_pred >= np.mean(y_pred)).astype(int)
+    # Convertir a clasificación para métricas adicionales
+    y_true_class = np.round(y_true)
+    y_pred_class = np.round(y_pred)
 
+    # Métricas de clasificación
     accuracy = accuracy_score(y_true_class, y_pred_class)
     precision = precision_score(
         y_true_class, y_pred_class, average="weighted", zero_division=0
@@ -119,6 +125,7 @@ def calculate_metrics(y_true, y_pred, threshold=0.1):
         "F1": f1,
     }
 
+
 def evaluate_model():
     """Evalúa el modelo entrenado usando múltiples métricas"""
     try:
@@ -130,51 +137,30 @@ def evaluate_model():
         # Cargar modelo y preprocessors
         model = tf.keras.models.load_model("models/modelo_estimacion.keras")
         preprocessor = joblib.load("models/preprocessor.pkl")
+        scaler = joblib.load("models/scaler.pkl")
 
-        # Cargar scalers separados
-        scaler_num = joblib.load("models/scaler.pkl")
-        scaler_req = joblib.load("models/scaler_req.pkl")  # Necesitamos crear este scaler
-
-        # Procesar los datos
-        X_num_test = data["test"][0]  # Features numéricas
-        X_req_test = data["test"][1]  # Info del requerimiento
+        # Obtener datos de test
+        X_num_test = data["test"][0]  # Features numéricas (2 características)
+        X_req_test = data["test"][1]  # Info del requerimiento (4 características)
         X_task_test = data["test"][2]  # Tipos de tarea
-        y_test = data["test"][3]      # Valores reales
+        y_test = data["test"][3]  # Valores reales
 
         # Codificar tipos de tarea
         X_task_encoded = preprocessor.encode_task_types(X_task_test)
 
-        # Normalizar características por separado
-        X_num_norm = scaler_num.transform(X_num_test)
-        X_req_norm = scaler_req.transform(X_req_test)
+        # Normalizar datos numéricos primero (2 características)
+        X_num_scaled = StandardScaler().fit_transform(X_num_test)
+
+        # Normalizar datos de requerimiento por separado (4 características)
+        X_req_scaled = StandardScaler().fit_transform(X_req_test)
 
         # Realizar predicciones
-        y_pred = model.predict([
-            X_num_norm,
-            X_req_norm, 
-            np.array(X_task_encoded).reshape(-1, 1)
-        ])
+        y_pred = model.predict(
+            [X_num_scaled, X_req_scaled, np.array(X_task_encoded).reshape(-1, 1)]
+        )
 
         # Calcular métricas
         metrics = calculate_metrics(y_test, y_pred.flatten())
-
-        # Obtener estadísticas del dataset
-        data_stats = {
-            "total_reqs": len(
-                np.unique(data["train"][0])
-            ),  # número de requerimientos únicos
-            "total_tasks": len(data["train"][0])
-            + len(data["test"][0]),  # total de tareas
-            "mean_duration": float(
-                np.mean(np.concatenate([data["train"][3], data["test"][3]]))
-            ),
-            "median_duration": float(
-                np.median(np.concatenate([data["train"][3], data["test"][3]]))
-            ),
-            "std_duration": float(
-                np.std(np.concatenate([data["train"][3], data["test"][3]]))
-            ),
-        }
 
         # Imprimir resultados
         print("\nMétricas de Rendimiento del Modelo:")
@@ -188,54 +174,50 @@ def evaluate_model():
         print(f"Recuperación (Recall): {metrics['Recall']:.4f}")
         print(f"Puntuación F1 (F1-Score): {metrics['F1']:.4f}")
 
-        # Guardar métricas en el historial
-        save_metrics_history(metrics, data_stats)
+        # Save metrics to history file
+        save_metrics_history(metrics)
 
         return metrics
 
     except Exception as e:
         print(f"Error durante la evaluación: {str(e)}")
         import traceback
+
         print(traceback.format_exc())
         return None
 
-def save_metrics_history(metrics, data_stats=None):
-    """Guarda las métricas y estadísticas del dataset en un archivo JSON como historial"""
-    # Nombre del archivo para el historial
+
+def save_metrics_history(metrics):
+    """Guarda las métricas en un archivo JSON como historial"""
+    import json
+    from datetime import datetime
+
     history_file = "models/metrics_history.json"
 
-    # Preparar entrada con timestamp y estadísticas
+    # Prepare new metrics entry
     metrics_entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "metrics": metrics,
-        "dataset_stats": (
-            {
-                "total_requerimientos": data_stats["total_reqs"],
-                "total_tareas": data_stats["total_tasks"],
-                "duracion_promedio": data_stats["mean_duration"],
-                "duracion_mediana": data_stats["median_duration"],
-                "duracion_std": data_stats["std_duration"],
-            }
-            if data_stats
-            else None
-        ),
+        "metrics": {
+            k: float(v) for k, v in metrics.items()
+        },  # Convert numpy types to float
     }
 
-    # Cargar historial existente o crear nuevo
-    if os.path.exists(history_file):
+    # Load existing history or create new
+    try:
         with open(history_file, "r") as f:
             history = json.load(f)
-    else:
+    except (FileNotFoundError, json.JSONDecodeError):
         history = []
 
-    # Agregar nuevas métricas
+    # Add new metrics and save
     history.append(metrics_entry)
 
-    # Guardar historial actualizado
+    # Save updated history
     with open(history_file, "w") as f:
         json.dump(history, f, indent=4)
 
-    print(f"\nMétricas y estadísticas guardadas en: {history_file}")
+    print(f"\nMétricas guardadas en el historial: {history_file}")
+
 
 if __name__ == "__main__":
     evaluate_model()
