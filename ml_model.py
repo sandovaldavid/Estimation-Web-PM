@@ -246,62 +246,6 @@ class EstimacionModel:
         """Realiza predicciones"""
         return self.model.predict([X_num, X_req, X_task])
 
-    def evaluate_performance(self, y_true, y_pred, threshold=0.1):
-        """
-        Calcula métricas de rendimiento del modelo
-        
-        Args:
-            y_true: Valores reales
-            y_pred: Valores predichos
-            threshold: Umbral de tolerancia para considerar una predicción correcta (default 10%)
-        """
-        # Convertir predicciones a clasificación binaria basada en el umbral
-        y_true_binary = np.array(y_true)
-        y_pred_binary = np.abs(y_pred - y_true) <= (y_true * threshold)
-        
-        # Calcular métricas básicas
-        mse = np.mean((y_true - y_pred) ** 2)
-        rmse = np.sqrt(mse)
-        mae = np.mean(np.abs(y_true - y_pred))
-        mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
-        
-        # Calcular métricas de clasificación
-        tp = np.sum((y_pred_binary == True) & (y_true_binary > 0))
-        fp = np.sum((y_pred_binary == True) & (y_true_binary <= 0))
-        tn = np.sum((y_pred_binary == False) & (y_true_binary <= 0))
-        fn = np.sum((y_pred_binary == False) & (y_true_binary > 0))
-        
-        # Calcular métricas derivadas
-        accuracy = (tp + tn) / (tp + tn + fp + fn)
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-        f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
-        return {
-            'mse': mse,
-            'rmse': rmse,
-            'mae': mae,
-            'mape': mape,
-            'accuracy': accuracy,
-            'precision': precision,
-            'recall': recall,
-            'f1_score': f1_score
-        }
-
-    def print_performance_metrics(self, metrics):
-        """Imprime las métricas de rendimiento de forma formateada"""
-        print("\nMétricas de Rendimiento:")
-        print("========================")
-        print(f"Error Cuadrático Medio (MSE): {metrics['mse']:.4f}")
-        print(f"Raíz del Error Cuadrático Medio (RMSE): {metrics['rmse']:.4f} horas")
-        print(f"Error Absoluto Medio (MAE): {metrics['mae']:.4f} horas")
-        print(f"Error Porcentual Absoluto Medio (MAPE): {metrics['mape']:.2f}%")
-        print("\nMétricas de Clasificación:")
-        print(f"Precisión (Accuracy): {metrics['accuracy']:.4f}")
-        print(f"Exactitud (Precision): {metrics['precision']:.4f}")
-        print(f"Recall: {metrics['recall']:.4f}")
-        print(f"F1-Score: {metrics['f1_score']:.4f}")
-
 class DataPreprocessor:
     """Clase para preprocesamiento de datos"""
 
