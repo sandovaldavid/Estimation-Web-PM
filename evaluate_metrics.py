@@ -127,33 +127,33 @@ def evaluate_model():
         # Cargar modelo y preprocessors
         model = tf.keras.models.load_model("models/modelo_estimacion.keras")
         preprocessor = joblib.load("models/preprocessor.pkl")
-        scaler = joblib.load("models/scaler.pkl")
+        
+        # Cargar scalers separados
+        scaler_num = joblib.load("models/scaler.pkl")
+        scaler_req = joblib.load("models/scaler_req.pkl")  # Necesitamos crear este scaler
 
         # Procesar los datos
         X_num_test = data["test"][0]  # Features numéricas
         X_req_test = data["test"][1]  # Info del requerimiento
         X_task_test = data["test"][2]  # Tipos de tarea
-        y_test = data["test"][3]  # Valores reales
+        y_test = data["test"][3]      # Valores reales
 
-        # Codificar tipos de tarea y convertir a array numpy
-        X_task_encoded = np.array(preprocessor.encode_task_types(X_task_test))
+        # Codificar tipos de tarea
+        X_task_encoded = preprocessor.encode_task_types(X_task_test)
 
-        # Preparar datos para normalización (4 características)
-        X_num_full = np.concatenate([X_num_test, X_req_test[:, :2]], axis=1)
-        X_num_norm = scaler.transform(X_num_full)[:, :2]  # Tomamos solo las 2 primeras
-        X_req_norm = scaler.transform(X_req_test)
+        # Normalizar características por separado
+        X_num_norm = scaler_num.transform(X_num_test)
+        X_req_norm = scaler_req.transform(X_req_test)
 
         # Realizar predicciones
-        y_pred = model.predict(
-            [
-                X_num_norm,
-                X_req_norm,
-                X_task_encoded.reshape(-1, 1),  # Asegurar forma correcta
-            ]
-        )
+        y_pred = model.predict([
+            X_num_norm,
+            X_req_norm, 
+            np.array(X_task_encoded).reshape(-1, 1)
+        ])
 
         # Calcular métricas
-        metrics = calculate_metrics(y_test, y_pred.flatten())  # Aplanar predicciones
+        metrics = calculate_metrics(y_test, y_pred.flatten())
 
         # Imprimir resultados
         print("\nMétricas de Rendimiento del Modelo:")
@@ -172,7 +172,6 @@ def evaluate_model():
     except Exception as e:
         print(f"Error durante la evaluación: {str(e)}")
         import traceback
-
         print(traceback.format_exc())
         return None
 
