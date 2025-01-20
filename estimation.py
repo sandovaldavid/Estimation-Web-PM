@@ -196,29 +196,28 @@ def main():
             X_req_train, 
             y_train
         )
-        
-        print(f"CV Score: {mean_score:.4f} (+/- {std_score:.4f})")
 
+        print(f"CV Score: {mean_score:.4f} (+/- {std_score:.4f})")
+        
         # Entrenar modelo final
         history = model.train(
-            [
-                X_num_train_norm,
-                X_req_train,
-                X_task_train,
-            ],  # Incluir X_req en el entrenamiento
+            [X_num_train_norm, X_req_train, X_task_train],
             y_train,
             validation_data=([X_num_val_norm, X_req_val, X_task_val], y_val),
             epochs=100,
         )
 
-        # Analizar importancia de features
+        # Realizar predicciones en conjunto de validación
+        y_pred = model.predict(X_num_val_norm, X_task_val, X_req_val)
+
+        # Calcular e imprimir métricas de rendimiento
+        metrics = model.evaluate_performance(y_val, y_pred)
+        model.print_performance_metrics(metrics)
+
+        # Análisis de importancia de características (código existente...)
         feature_names = ["Complejidad", "Prioridad", "Info Requerimiento"]
         importance_scores = model.analyze_feature_importance(
-            X_num_train_norm,
-            X_task_train,
-            X_req_train,
-            y_train,
-            feature_names
+            X_num_train_norm, X_task_train, X_req_train, y_train, feature_names
         )
 
         print("\nImportancia de características:")
@@ -230,7 +229,7 @@ def main():
         model.model.save("models/modelo_estimacion.keras")
         print("Modelo guardado exitosamente")
 
-        return history
+        return history, metrics
 
     except Exception as e:
         print(f"Error durante el entrenamiento: {str(e)}")
