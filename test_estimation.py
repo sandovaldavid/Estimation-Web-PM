@@ -16,10 +16,9 @@ def test_estimaciones():
         model = EstimacionModel(config)
         model.model = tf.keras.models.load_model("models/modelo_estimacion.keras")
 
-        # Cargar preprocessors y scalers
+        # Cargar preprocessor y scaler
         preprocessor = joblib.load("models/preprocessor.pkl")
         scaler_num = joblib.load("models/scaler.pkl")
-        scaler_req = joblib.load("models/scaler_req.pkl")
 
     except Exception as e:
         print(f"Error: No se pudo cargar el modelo o preprocessors: {str(e)}")
@@ -40,16 +39,22 @@ def test_estimaciones():
 
     for idreq, comp, prior, tipo in test_cases:
         try:
-            # Preparar datos numéricos (2 características)
-            X_num = np.array([[comp, prior]], dtype=np.float32)
+            # Preparar datos numéricos y de requerimiento con el formato correcto
+            X_num = np.array(
+                [[comp, prior, comp, prior]], dtype=np.float32
+            )  # 4 características
             X_task = np.array(preprocessor.encode_task_types([tipo]))
 
-            # Generar características del requerimiento (4 características)
-            X_req = np.array([[comp, comp, 1, prior]], dtype=np.float32)
+            # Generar características del requerimiento
+            X_req = np.array(
+                [[comp, comp, 1, prior]], dtype=np.float32
+            )  # 4 características
 
-            # Normalizar datos usando los scalers correctos
-            X_num_norm = scaler_num.transform(X_num)
-            X_req_norm = scaler_req.transform(X_req)
+            # Normalizar datos
+            X_num_norm = scaler_num.transform(X_num)[
+                :, :2
+            ]  # Tomamos solo las 2 primeras características
+            X_req_norm = scaler_num.transform(X_req)
 
             # Realizar predicción
             resultado = model.predict_individual_task(X_num_norm, X_task, X_req_norm)
