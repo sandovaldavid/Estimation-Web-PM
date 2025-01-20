@@ -13,6 +13,8 @@ import pandas as pd
 import tensorflow as tf
 import joblib
 from sklearn.preprocessing import StandardScaler
+import json
+from datetime import datetime
 
 
 def load_and_preprocess_data():
@@ -140,10 +142,25 @@ def evaluate_model():
         scaler = joblib.load("models/scaler.pkl")
 
         # Obtener datos de test
-        X_num_test = data["test"][0]  # Features numéricas (2 características)
-        X_req_test = data["test"][1]  # Info del requerimiento (4 características)
+        X_num_test = data["test"][0]  # Features numéricas
+        X_req_test = data["test"][1]  # Info del requerimiento
         X_task_test = data["test"][2]  # Tipos de tarea
         y_test = data["test"][3]  # Valores reales
+
+        # Obtener estadísticas del dataset completo
+        y_all = np.concatenate([data["train"][3], y_test])
+
+        # Obtener IDs de requerimientos del CSV directamente
+        df = pd.read_csv("estimacion_tiempos.csv")
+        total_reqs = df["idrequerimiento"].nunique()
+
+        dataset_stats = {
+            "total_reqs": total_reqs,  # Total de requerimientos únicos
+            "total_tasks": len(y_all),  # Total de tareas
+            "mean_duration": float(np.mean(y_all)),  # Duración promedio
+            "median_duration": float(np.median(y_all)),  # Duración mediana
+            "std_duration": float(np.std(y_all)),  # Desviación estándar
+        }
 
         # Codificar tipos de tarea
         X_task_encoded = preprocessor.encode_task_types(X_task_test)
@@ -174,8 +191,8 @@ def evaluate_model():
         print(f"Recuperación (Recall): {metrics['Recall']:.4f}")
         print(f"Puntuación F1 (F1-Score): {metrics['F1']:.4f}")
 
-        # Save metrics to history file
-        save_metrics_history(metrics)
+        # Guardar métricas y estadísticas en el historial
+        save_metrics_history(metrics, dataset_stats)
 
         return metrics
 
@@ -186,20 +203,26 @@ def evaluate_model():
         print(traceback.format_exc())
         return None
 
-
-def save_metrics_history(metrics):
-    """Guarda las métricas en un archivo JSON como historial"""
-    import json
-    from datetime import datetime
+def save_metrics_history(metrics, dataset_stats=None):
+    """Guarda las métricas y estadísticas del dataset en un archivo JSON como historial"""
 
     history_file = "models/metrics_history.json"
 
-    # Prepare new metrics entry
+    # Prepare new metrics entry with dataset stats
     metrics_entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "metrics": {
-            k: float(v) for k, v in metrics.items()
-        },  # Convert numpy types to float
+        "metrics": {k: float(v) for k, v in metrics.items()},
+        "dataset_stats": (
+            {
+                "total_requerimientos": int(dataset_stats["total_reqs"]),
+                "total_tareas": int(dataset_stats["total_tasks"]),
+                "duracion_promedio": float(dataset_stats["mean_duration"]),
+                "duracion_mediana": float(dataset_stats["median_duration"]),
+                "duracion_std": float(dataset_stats["std_duration"]),
+            }
+            if dataset_stats
+            else None
+        ),
     }
 
     # Load existing history or create new
@@ -216,7 +239,7 @@ def save_metrics_history(metrics):
     with open(history_file, "w") as f:
         json.dump(history, f, indent=4)
 
-    print(f"\nMétricas guardadas en el historial: {history_file}")
+    print(f"\nMétricas y estadísticas guardadas en: {history_file}")
 
 
 if __name__ == "__main__":
