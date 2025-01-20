@@ -107,8 +107,10 @@ def load_and_process_data():
 
         # 9. Normalización de datos
         scaler = StandardScaler()
+        scaler_req = StandardScaler()
+
         X_numeric_scaled = scaler.fit_transform(X_numeric)
-        X_req_scaled = scaler.fit_transform(X_req)
+        X_req_scaled = scaler_req.fit_transform(X_req)
 
         # 10. Split estratificado de datos
         (
@@ -130,9 +132,10 @@ def load_and_process_data():
             stratify=data["tipo_tarea"],
         )
 
-        # 11. Guardar preprocessor
+        # 11. Guardar preprocessors y scalers
         joblib.dump(preprocessor, "models/preprocessor.pkl")
-        joblib.dump(scaler, "models/scaler.pkl")
+        joblib.dump(scaler, "models/scaler.pkl") 
+        joblib.dump(scaler_req, "models/scaler_req.pkl")
 
         print("\nEstadísticas del dataset:")
         print(f"Promedio de duración: {y.mean():.2f} horas")
