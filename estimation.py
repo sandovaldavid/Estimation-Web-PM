@@ -186,8 +186,13 @@ def main():
         model = EstimacionModel(config)
 
         # Normalizar datos
-        X_num_train_norm, scaler = model.normalize_data(X_num_train)
-        X_num_val_norm = scaler.transform(X_num_val)
+        X_num_train_norm, scaler_num = model.normalize_data(X_num_train)
+        X_num_val_norm = scaler_num.transform(X_num_val)
+
+        # Normalizar datos de requerimientos separadamente
+        scaler_req = StandardScaler()
+        X_req_train_norm = scaler_req.fit_transform(X_req_train)
+        X_req_val_norm = scaler_req.transform(X_req_val)
 
         # Entrenar modelo final
         history = model.train(
@@ -202,8 +207,9 @@ def main():
 
         # Guardar modelo y preprocessors
         model.model.save("models/modelo_estimacion.keras")
-        joblib.dump(scaler, "models/scaler.pkl")
-        print("Modelo guardado exitosamente")
+        joblib.dump(scaler_num, "models/scaler.pkl")
+        joblib.dump(scaler_req, "models/scaler_req.pkl")
+        print("Modelo y preprocessors guardados exitosamente")
 
         return history
 
