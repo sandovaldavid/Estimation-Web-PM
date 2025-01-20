@@ -4,27 +4,28 @@ import tensorflow as tf
 from ml_model import EstimacionModel, DataPreprocessor
 import traceback
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 import pandas as pd
+import joblib
 
 def setup_environment():
     """Configura el ambiente para TensorFlow"""
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-
 
 def load_and_process_data():
     """
     Carga y procesa los datos del CSV para el modelo de estimación
 
     Returns:
-        tuple: (X_num_train, X_num_val, X_task_train, X_task_val, y_train, y_val, vocab_size)
+        tuple: Datos procesados para entrenamiento y validación
     """
     try:
-        # Cargar datos
+        # 1. Carga de datos
         data = pd.read_csv("estimacion_tiempos.csv")
 
-        # Validar columnas requeridas
+        # 2. Validación de columnas requeridas
         required_columns = [
-            "idrequerimiento",  # Añadido para identificar requerimientos
+            "idrequerimiento",
             "complejidad",
             "prioridad",
             "tipo_tarea",
@@ -33,7 +34,33 @@ def load_and_process_data():
         if not all(col in data.columns for col in required_columns):
             raise ValueError("El CSV no contiene todas las columnas requeridas")
 
-        # Validar rangos de datos
+        # 3. Procesamiento por requerimiento
+        req_stats = (
+            data.groupby("idrequerimiento")
+            .agg(
+                {
+                    "complejidad": ["mean", "max", "count"],
+                    "duracion": "sum",
+                    "prioridad": "mean",
+                }
+            )
+            .reset_index()
+        )
+
+        # Renombrar columnas agregadas
+        req_stats.columns = [
+            "idrequerimiento",
+            "complejidad_media_req",
+            "complejidad_max_req",
+            "num_tareas_req",
+            "duracion_total_req",
+            "prioridad_media_req",
+        ]
+
+        # Unir con datos originales
+        data = data.merge(req_stats, on="idrequerimiento")
+
+        # 4. Validaciones de rangos y valores
         if not (
             data["complejidad"].between(1, 5).all()
             and data["prioridad"].between(1, 3).all()
@@ -42,45 +69,81 @@ def load_and_process_data():
                 "Valores fuera de rango en complejidad (1-5) o prioridad (1-3)"
             )
 
-        # Inicializar el preprocessor
-        preprocessor = DataPreprocessor()
+        if not data["idrequerimiento"].notna().all():
+            raise ValueError("Hay requerimientos sin ID")
 
-        # Obtener y validar tipos de tareas únicos
+        # 5. Procesamiento de tipos de tarea
+        preprocessor = DataPreprocessor()
         tipos_tarea_unicos = sorted(data["tipo_tarea"].unique())
         expected_tasks = ["backend", "frontend", "database", "testing", "deployment"]
+
         if not all(task in tipos_tarea_unicos for task in expected_tasks):
             raise ValueError(f"Faltan tipos de tarea. Esperados: {expected_tasks}")
 
         print("Tipos de tareas encontrados:", tipos_tarea_unicos)
+        print(f"Número total de requerimientos: {data['idrequerimiento'].nunique()}")
+        print(f"Número total de tareas: {len(data)}")
 
-        # Procesar tipos de tarea
+        # 6. Codificación de tipos de tarea
         preprocessor.fit_tokenizer(tipos_tarea_unicos)
         tipos_tarea_encoded = preprocessor.encode_task_types(data["tipo_tarea"].values)
         tipos_tarea_encoded = np.array(tipos_tarea_encoded)
 
-        # Preparar features numéricas (solo complejidad y prioridad)
+        # 7. Preparación de features
         X_numeric = data[["complejidad", "prioridad"]].values
+        X_req = data[
+            [
+                "complejidad_media_req",
+                "complejidad_max_req",
+                "num_tareas_req",
+                "prioridad_media_req",
+            ]
+        ].values
         y = data["duracion"].values
 
-        # Validar que no hay valores nulos
-        if np.isnan(X_numeric).any() or np.isnan(y).any():
+        # 8. Validación de nulos
+        if np.isnan(X_numeric).any() or np.isnan(X_req).any() or np.isnan(y).any():
             raise ValueError("Hay valores nulos en los datos")
 
-        # División estratificada por tipo de tarea
-        X_num_train, X_num_val, X_task_train, X_task_val, y_train, y_val = (
-            train_test_split(
-                X_numeric,
-                tipos_tarea_encoded,
-                y,
-                test_size=0.2,
-                random_state=42,
-                stratify=data["tipo_tarea"],
-            )
+        # 9. Normalización de datos
+        scaler = StandardScaler()
+        X_numeric_scaled = scaler.fit_transform(X_numeric)
+        X_req_scaled = scaler.fit_transform(X_req)
+
+        # 10. Split estratificado de datos
+        (
+            X_num_train,
+            X_num_val,
+            X_req_train,
+            X_req_val,
+            X_task_train,
+            X_task_val,
+            y_train,
+            y_val,
+        ) = train_test_split(
+            X_numeric_scaled,
+            X_req_scaled,
+            tipos_tarea_encoded,
+            y,
+            test_size=0.2,
+            random_state=42,
+            stratify=data["tipo_tarea"],
         )
+
+        # 11. Guardar preprocessor
+        joblib.dump(preprocessor, "models/preprocessor.pkl")
+        joblib.dump(scaler, "models/scaler.pkl")
+
+        print("\nEstadísticas del dataset:")
+        print(f"Promedio de duración: {y.mean():.2f} horas")
+        print(f"Mediana de duración: {np.median(y):.2f} horas")
+        print(f"Desviación estándar: {y.std():.2f} horas")
 
         return (
             X_num_train,
             X_num_val,
+            X_req_train,
+            X_req_val,
             X_task_train,
             X_task_val,
             y_train,
@@ -99,9 +162,17 @@ def main():
         setup_environment()
 
         # Cargar y procesar datos
-        X_num_train, X_num_val, X_task_train, X_task_val, y_train, y_val, vocab_size = (
-            load_and_process_data()
-        )
+        (
+            X_num_train,
+            X_num_val,
+            X_req_train,
+            X_req_val,  # Añadido X_req para información del requerimiento
+            X_task_train,
+            X_task_val,
+            y_train,
+            y_val,
+            vocab_size,
+        ) = load_and_process_data()
 
         # Configuración del modelo
         config = {
@@ -120,24 +191,33 @@ def main():
 
         # Validación cruzada
         mean_score, std_score = model.cross_validate_model(
-            X_num_train_norm, X_task_train, y_train
+            X_num_train_norm, 
+            X_task_train,
+            X_req_train, 
+            y_train
         )
+        
         print(f"CV Score: {mean_score:.4f} (+/- {std_score:.4f})")
 
         # Entrenar modelo final
         history = model.train(
-            [X_num_train_norm, X_task_train],
+            [
+                X_num_train_norm,
+                X_req_train,
+                X_task_train,
+            ],  # Incluir X_req en el entrenamiento
             y_train,
-            validation_data=([X_num_val_norm, X_task_val], y_val),
+            validation_data=([X_num_val_norm, X_req_val, X_task_val], y_val),
             epochs=100,
         )
 
         # Analizar importancia de features
-        feature_names = ["Complejidad", "Prioridad"]  # Solo estas dos características numéricas
+        feature_names = ["Complejidad", "Prioridad", "Info Requerimiento"]
         importance_scores = model.analyze_feature_importance(
-            X_num_train_norm, 
-            X_task_train, 
-            y_train, 
+            X_num_train_norm,
+            X_task_train,
+            X_req_train,
+            y_train,
             feature_names
         )
 
