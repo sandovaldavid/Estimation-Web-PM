@@ -47,71 +47,86 @@ class EstimacionModel:
         return X_normalized, self.scaler
 
     def _build_numeric_branch(self):
-        """Construye la rama para procesar características numéricas y de requerimiento"""
-        # Input para complejidad y prioridad
+        """Construye una rama más compleja para características numéricas"""
         numeric_input = Input(shape=(2,), name="numeric_input")
+        req_input = Input(shape=(4,), name="req_input")
 
-        # Input para información del requerimiento (4 características)
-        req_input = Input(shape=(4,), name="req_input")  # Cambiar a 4
+        # Rama numérica más profunda
+        x1 = Dense(128, activation="relu", name="numeric_dense_1")(numeric_input)
+        x1 = BatchNormalization(name="numeric_batch_norm_1")(x1)
+        x1 = Dropout(0.3)(x1)
 
-        # Procesar features numéricas
-        x1 = Dense(64, activation="relu", name="numeric_dense")(numeric_input)
-        x1 = BatchNormalization(name="numeric_batch_norm")(x1)
-        x1 = Dropout(self.config["dropout_rate"])(x1)
+        x1 = Dense(64, activation="relu", name="numeric_dense_2")(x1)
+        x1 = BatchNormalization(name="numeric_batch_norm_2")(x1)
+        x1 = Dropout(0.2)(x1)
 
-        # Procesar información del requerimiento
-        x2 = Dense(32, activation="relu", name="req_dense")(
-            req_input
-        )  # Procesa 4 características
-        x2 = BatchNormalization(name="req_batch_norm")(x2)
-        x2 = Dropout(self.config["dropout_rate"])(x2)
+        # Rama de requerimientos más compleja
+        x2 = Dense(64, activation="relu", name="req_dense_1")(req_input)
+        x2 = BatchNormalization(name="req_batch_norm_1")(x2)
+        x2 = Dropout(0.3)(x2)
 
-        # Combinar con nombre único
+        x2 = Dense(32, activation="relu", name="req_dense_2")(x2)
+        x2 = BatchNormalization(name="req_batch_norm_2")(x2)
+        x2 = Dropout(0.2)(x2)
+
+        # Concatenación con nombre único
         x = Concatenate(name="concatenate_numeric")([x1, x2])
         return [numeric_input, req_input], x
 
     def _build_task_type_branch(self):
-        """Construye la rama para procesar tipos de tareas"""
+        """Construye una rama más compleja para procesar tipos de tareas"""
         task_input = Input(shape=(1,), name="task_input")
+
+        # Capa de embedding más grande
         x = Embedding(
-            self.config["vocab_size"],
-            32,
-            name="embedding"
+            self.config["vocab_size"], 64, name="task_embedding"  # Aumentado de 32 a 64
         )(task_input)
-        x = Reshape((1, 32), name="reshape")(x)
-        x = LSTM(
-            32,
-            return_sequences=False,
-            name="lstm"
-        )(x)
-        x = BatchNormalization()(x)
+
+        # Reshape necesario para LSTM
+        x = Reshape((1, 64), name="reshape")(x)
+
+        # Múltiples capas LSTM con residual connections
+        lstm_units = [64, 32, 16]
+        for i, units in enumerate(lstm_units):
+            lstm_out = LSTM(
+                units,
+                return_sequences=True if i < len(lstm_units) - 1 else False,
+                name=f"lstm_{i+1}",
+            )(x)
+            x = BatchNormalization(name=f"lstm_batch_norm_{i+1}")(lstm_out)
+            x = Dropout(0.3)(x)  # Aumentado de 0.2 a 0.3
+
+        # Capas densas adicionales
+        x = Dense(32, activation="relu", name="task_dense_1")(x)
+        x = BatchNormalization(name="task_batch_norm_1")(x)
         x = Dropout(0.2)(x)
+
+        x = Dense(16, activation="relu", name="task_dense_2")(x)
+        x = BatchNormalization(name="task_batch_norm_2")(x)
+        x = Dropout(0.2)(x)
+
         return task_input, x
 
     def _build_model(self):
-        """Construye el modelo completo para estimación de tiempos"""
-        # Rama numérica y de requerimiento
+        """Construye el modelo completo mejorado"""
         [numeric_input, req_input], x1 = self._build_numeric_branch()
+        task_input, x2 = self._build_task_type_branch()
 
-        # Rama de tipo de tarea
-        task_input = Input(shape=(1,), name="task_input")
-        x2 = Embedding(self.config["vocab_size"], 32, name="task_embedding")(task_input)
-        x2 = Reshape((32,), name="task_reshape")(x2)
-        x2 = Dense(32, activation="relu", name="task_dense")(x2)
-        x2 = BatchNormalization(name="task_batch_norm")(x2)
-        x2 = Dropout(self.config["dropout_rate"], name="task_dropout")(x2)
-
-        # Combinar todas las características
+        # Combinar features
         combined = Concatenate(name="concatenate_features")([x1, x2])
 
-        # Capas densas finales
-        x = Dense(128, activation="relu", name="combined_dense_1")(combined)
+        # Red más profunda para el procesamiento final
+        x = Dense(256, activation="relu", name="combined_dense_1")(combined)
         x = BatchNormalization(name="combined_batch_norm_1")(x)
-        x = Dropout(self.config["dropout_rate"], name="combined_dropout_1")(x)
+        x = Dropout(0.4)(x)
 
-        x = Dense(64, activation="relu", name="combined_dense_2")(x)
+        x = Dense(128, activation="relu", name="combined_dense_2")(x)
         x = BatchNormalization(name="combined_batch_norm_2")(x)
-        x = Dropout(self.config["dropout_rate"], name="combined_dropout_2")(x)
+        x = Dropout(0.3)(x)
+
+        x = Dense(64, activation="relu", name="combined_dense_3")(x)
+        x = BatchNormalization(name="combined_batch_norm_3")(x)
+        x = Dropout(0.2)(x)
 
         output = Dense(1, activation="linear", name="output")(x)
 
@@ -245,6 +260,7 @@ class EstimacionModel:
     def predict(self, X_num, X_task, X_req):
         """Realiza predicciones"""
         return self.model.predict([X_num, X_req, X_task])
+
 
 class DataPreprocessor:
     """Clase para preprocesamiento de datos"""
