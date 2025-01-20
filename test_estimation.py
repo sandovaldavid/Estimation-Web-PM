@@ -29,10 +29,13 @@ def test_estimaciones():
     test_cases = [
         # (idreq, complejidad, prioridad, tipo_tarea)
         (1, 3, 2, "backend"),  # Tarea simple backend
-        (1, 3, 2, "frontend"),  # Tarea media frontend
+        (1, 5, 1, "frontend"),  # Tarea media frontend
         (2, 5, 3, "database"),  # Tarea compleja database
         (2, 4, 2, "backend"),  # Tarea alta backend
         (3, 2, 3, "testing"),  # Tarea baja testing
+        (4, 1, 1, "deployment"),
+        (4, 5, 3, "deployment"),
+        (4, 5, 1, "frontend"),
     ]
 
     print("\nPruebas de Estimación de Duración:")
