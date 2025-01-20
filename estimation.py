@@ -226,6 +226,7 @@ def main():
             print(f"{feature}: {score:.4f}")
 
         # Guardar modelo
+        model.mode.sumamary()
         model.model.save("models/modelo_estimacion.keras")
         print("Modelo guardado exitosamente")
 
