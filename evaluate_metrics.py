@@ -130,7 +130,7 @@ def evaluate_model():
         # Cargar modelo y preprocessors
         model = tf.keras.models.load_model("models/modelo_estimacion.keras")
         preprocessor = joblib.load("models/preprocessor.pkl")
-        
+
         # Cargar scalers separados
         scaler_num = joblib.load("models/scaler.pkl")
         scaler_req = joblib.load("models/scaler_req.pkl")  # Necesitamos crear este scaler
@@ -158,6 +158,24 @@ def evaluate_model():
         # Calcular métricas
         metrics = calculate_metrics(y_test, y_pred.flatten())
 
+        # Obtener estadísticas del dataset
+        data_stats = {
+            "total_reqs": len(
+                np.unique(data["train"][0])
+            ),  # número de requerimientos únicos
+            "total_tasks": len(data["train"][0])
+            + len(data["test"][0]),  # total de tareas
+            "mean_duration": float(
+                np.mean(np.concatenate([data["train"][3], data["test"][3]]))
+            ),
+            "median_duration": float(
+                np.median(np.concatenate([data["train"][3], data["test"][3]]))
+            ),
+            "std_duration": float(
+                np.std(np.concatenate([data["train"][3], data["test"][3]]))
+            ),
+        }
+
         # Imprimir resultados
         print("\nMétricas de Rendimiento del Modelo:")
         print("=====================================")
@@ -171,7 +189,7 @@ def evaluate_model():
         print(f"Puntuación F1 (F1-Score): {metrics['F1']:.4f}")
 
         # Guardar métricas en el historial
-        save_metrics_history(metrics)
+        save_metrics_history(metrics, data_stats)
 
         return metrics
 
@@ -181,15 +199,26 @@ def evaluate_model():
         print(traceback.format_exc())
         return None
 
-def save_metrics_history(metrics):
-    """Guarda las métricas en un archivo JSON como historial"""
+def save_metrics_history(metrics, data_stats=None):
+    """Guarda las métricas y estadísticas del dataset en un archivo JSON como historial"""
     # Nombre del archivo para el historial
     history_file = "models/metrics_history.json"
 
-    # Preparar entrada con timestamp
+    # Preparar entrada con timestamp y estadísticas
     metrics_entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "metrics": metrics,
+        "dataset_stats": (
+            {
+                "total_requerimientos": data_stats["total_reqs"],
+                "total_tareas": data_stats["total_tasks"],
+                "duracion_promedio": data_stats["mean_duration"],
+                "duracion_mediana": data_stats["median_duration"],
+                "duracion_std": data_stats["std_duration"],
+            }
+            if data_stats
+            else None
+        ),
     }
 
     # Cargar historial existente o crear nuevo
@@ -206,7 +235,7 @@ def save_metrics_history(metrics):
     with open(history_file, "w") as f:
         json.dump(history, f, indent=4)
 
-    print(f"\nMétricas guardadas en: {history_file}")
+    print(f"\nMétricas y estadísticas guardadas en: {history_file}")
 
 if __name__ == "__main__":
     evaluate_model()
