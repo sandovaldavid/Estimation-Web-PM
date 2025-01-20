@@ -180,9 +180,9 @@ def main():
         # Configuración del modelo
         config = {
             "vocab_size": vocab_size,
-            "lstm_units": 32,
-            "dense_units": [64, 32],
-            "dropout_rate": 0.2,
+            "lstm_units": 64,
+            "dense_units": [256, 128, 64],
+            "dropout_rate": 0.3,
         }
 
         # Crear modelo
