@@ -139,7 +139,8 @@ def evaluate_model():
         # Cargar modelo y preprocessors
         model = tf.keras.models.load_model("models/modelo_estimacion.keras")
         preprocessor = joblib.load("models/preprocessor.pkl")
-        scaler = joblib.load("models/scaler.pkl")
+        scaler_num = joblib.load("models/scaler.pkl")
+        scaler_req = joblib.load("models/scaler_req.pkl")
 
         # Obtener datos de test
         X_num_test = data["test"][0]  # Features numéricas
@@ -147,33 +148,29 @@ def evaluate_model():
         X_task_test = data["test"][2]  # Tipos de tarea
         y_test = data["test"][3]  # Valores reales
 
-        # Obtener estadísticas del dataset completo
+        # Obtener estadísticas del dataset
         y_all = np.concatenate([data["train"][3], y_test])
-
-        # Obtener IDs de requerimientos del CSV directamente
         df = pd.read_csv("estimacion_tiempos.csv")
         total_reqs = df["idrequerimiento"].nunique()
 
         dataset_stats = {
-            "total_reqs": total_reqs,  # Total de requerimientos únicos
-            "total_tasks": len(y_all),  # Total de tareas
-            "mean_duration": float(np.mean(y_all)),  # Duración promedio
-            "median_duration": float(np.median(y_all)),  # Duración mediana
-            "std_duration": float(np.std(y_all)),  # Desviación estándar
+            "total_reqs": total_reqs,
+            "total_tasks": len(y_all),
+            "mean_duration": float(np.mean(y_all)),
+            "median_duration": float(np.median(y_all)),
+            "std_duration": float(np.std(y_all)),
         }
 
         # Codificar tipos de tarea
         X_task_encoded = preprocessor.encode_task_types(X_task_test)
 
-        # Normalizar datos numéricos primero (2 características)
-        X_num_scaled = StandardScaler().fit_transform(X_num_test)
-
-        # Normalizar datos de requerimiento por separado (4 características)
-        X_req_scaled = StandardScaler().fit_transform(X_req_test)
+        # Usar los scalers guardados en vez de crear nuevos
+        X_num_norm = scaler_num.transform(X_num_test)
+        X_req_norm = scaler_req.transform(X_req_test)
 
         # Realizar predicciones
         y_pred = model.predict(
-            [X_num_scaled, X_req_scaled, np.array(X_task_encoded).reshape(-1, 1)]
+            [X_num_norm, X_req_norm, np.array(X_task_encoded).reshape(-1, 1)]
         )
 
         # Calcular métricas
@@ -202,6 +199,7 @@ def evaluate_model():
 
         print(traceback.format_exc())
         return None
+
 
 def save_metrics_history(metrics, dataset_stats=None):
     """Guarda las métricas y estadísticas del dataset en un archivo JSON como historial"""
