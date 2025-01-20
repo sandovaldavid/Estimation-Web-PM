@@ -12,7 +12,8 @@ from tensorflow.keras.layers import (
 from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-
+import tensorflow as tf
+from tensorflow.keras.layers import Reshape
 
 class EstimacionModel:
     """Modelo para estimar tiempos de proyectos usando RNN"""
@@ -38,39 +39,36 @@ class EstimacionModel:
     def _build_task_type_branch(self):
         """Construye la rama para procesar tipos de tareas"""
         task_input = Input(shape=(1,), name="task_input")
-        x = Embedding(self.config["vocab_size"], 32, input_length=1)(task_input)
-        x = LSTM(32, return_sequences=True)(x)
-        x = LSTM(16)(x)
+        x = Embedding(
+            self.config["vocab_size"],
+            32,
+            name="embedding"
+        )(task_input)
+        x = Reshape((1, 32), name="reshape")(x)
+        x = LSTM(
+            32,
+            return_sequences=False,
+            name="lstm"
+        )(x)
+        x = BatchNormalization()(x)
         x = Dropout(0.2)(x)
         return task_input, x
 
     def _build_model(self):
-        """Construye el modelo completo combinando las ramas"""
-        # Rama numérica
+        """Construye el modelo completo"""
         numeric_input, numeric_features = self._build_numeric_branch()
-
-        # Rama de tipos de tarea
         task_input, task_features = self._build_task_type_branch()
 
-        # Combinar características
-        combined = Concatenate()([numeric_features, task_features])
-
-        # Capas densas finales
-        x = Dense(128, activation="relu")(combined)
+        combined = Concatenate(name="concat")([numeric_features, task_features])
+        x = Dense(64, activation="relu")(combined)
         x = BatchNormalization()(x)
         x = Dropout(0.3)(x)
+        x = Dense(32, activation="relu")(x)
+        output = Dense(1, name="output")(x)
 
-        x = Dense(64, activation="relu")(x)
-        x = BatchNormalization()(x)
-        x = Dropout(0.2)(x)
-
-        output = Dense(1, activation="linear", name="time_estimate")(x)
-
-        # Crear modelo
         model = Model(inputs=[numeric_input, task_input], outputs=output)
 
-        # Compilar
-        model.compile(optimizer="adam", loss=MeanSquaredError(), metrics=["mae", "mse"])
+        model.compile(optimizer="adam", loss="mse", metrics=["mae", "mse"])
 
         return model
 
@@ -81,23 +79,27 @@ class EstimacionModel:
             ModelCheckpoint("best_model.h5", monitor="val_loss", save_best_only=True),
         ]
 
-    def train(self, X_num, X_task, y, validation_data=None, epochs=100):
-        """
-        Entrena el modelo
+    def train(self, inputs, targets, validation_data=None, epochs=100):
+        """Train model with validation"""
+        callbacks = [
+            tf.keras.callbacks.EarlyStopping(
+                monitor="loss" if validation_data is None else "val_loss",
+                patience=10,
+                restore_best_weights=True,
+            ),
+            tf.keras.callbacks.ModelCheckpoint(
+                "models/best_model.keras",
+                monitor="loss" if validation_data is None else "val_loss",
+                save_best_only=True,
+            ),
+        ]
 
-        Args:
-            X_num: Features numéricos
-            X_task: Tipos de tarea codificados
-            y: Tiempos objetivo
-            validation_data: Datos de validación (opcional)
-            epochs: Número de épocas
-        """
         return self.model.fit(
-            [X_num, X_task],
-            y,
+            inputs,
+            targets,
             validation_data=validation_data,
             epochs=epochs,
-            callbacks=self.get_callbacks(),
+            callbacks=callbacks,
             verbose=1,
         )
 
