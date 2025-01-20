@@ -8,8 +8,12 @@ from tensorflow.keras.layers import (
     Concatenate,
     Dropout,
     BatchNormalization,
-    Add
+    Add,
+    Bidirectional,
+    Multiply,
+    Softmax
 )
+from tensorflow.keras.regularizers import l1_l2
 from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
@@ -47,27 +51,47 @@ class EstimacionModel:
         return X_normalized, self.scaler
 
     def _build_numeric_branch(self):
-        """Construye una rama más compleja para características numéricas"""
+        """Construye una rama más compleja para características numéricas con regularización"""
         numeric_input = Input(shape=(2,), name="numeric_input")
         req_input = Input(shape=(4,), name="req_input")
 
-        # Rama numérica más profunda
-        x1 = Dense(128, activation="relu", name="numeric_dense_1")(numeric_input)
-        x1 = BatchNormalization(name="numeric_batch_norm_1")(x1)
+        # Rama numérica con regularización L1/L2
+        x1 = Dense(
+            256,
+            activation="relu",
+            kernel_regularizer=tf.keras.regularizers.l1_l2(l1=1e-5, l2=1e-4),
+            name="numeric_dense_1",
+        )(numeric_input)
+        x1 = BatchNormalization(momentum=0.9, name="numeric_batch_norm_1")(x1)
+        x1 = Dropout(0.4)(x1)
+
+        x1 = Dense(
+            128,
+            activation="relu",
+            kernel_regularizer=tf.keras.regularizers.l1_l2(l1=1e-5, l2=1e-4),
+            name="numeric_dense_2",
+        )(x1)
+        x1 = BatchNormalization(momentum=0.9, name="numeric_batch_norm_2")(x1)
         x1 = Dropout(0.3)(x1)
 
-        x1 = Dense(64, activation="relu", name="numeric_dense_2")(x1)
-        x1 = BatchNormalization(name="numeric_batch_norm_2")(x1)
-        x1 = Dropout(0.2)(x1)
+        # Rama de requerimientos con regularización
+        x2 = Dense(
+            128,
+            activation="relu",
+            kernel_regularizer=tf.keras.regularizers.l1_l2(l1=1e-5, l2=1e-4),
+            name="req_dense_1",
+        )(req_input)
+        x2 = BatchNormalization(momentum=0.9, name="req_batch_norm_1")(x2)
+        x2 = Dropout(0.4)(x2)
 
-        # Rama de requerimientos más compleja
-        x2 = Dense(64, activation="relu", name="req_dense_1")(req_input)
-        x2 = BatchNormalization(name="req_batch_norm_1")(x2)
+        x2 = Dense(
+            64,
+            activation="relu",
+            kernel_regularizer=tf.keras.regularizers.l1_l2(l1=1e-5, l2=1e-4),
+            name="req_dense_2",
+        )(x2)
+        x2 = BatchNormalization(momentum=0.9, name="req_batch_norm_2")(x2)
         x2 = Dropout(0.3)(x2)
-
-        x2 = Dense(32, activation="relu", name="req_dense_2")(x2)
-        x2 = BatchNormalization(name="req_batch_norm_2")(x2)
-        x2 = Dropout(0.2)(x2)
 
         # Concatenación con nombre único
         x = Concatenate(name="concatenate_numeric")([x1, x2])
@@ -77,27 +101,36 @@ class EstimacionModel:
         """Construye una rama más compleja para procesar tipos de tareas"""
         task_input = Input(shape=(1,), name="task_input")
 
-        # Capa de embedding más grande
-        x = Embedding(
-            self.config["vocab_size"], 64, name="task_embedding"  # Aumentado de 32 a 64
-        )(task_input)
+        # Embedding más grande
+        x = Embedding(self.config["vocab_size"], 128, name="task_embedding")(task_input)
 
-        # Reshape necesario para LSTM
-        x = Reshape((1, 64), name="reshape")(x)
+        # Reshape para LSTM
+        x = Reshape((1, 128), name="reshape")(x)
 
-        # Múltiples capas LSTM con residual connections
-        lstm_units = [64, 32, 16]
+        # LSTM bidireccional y más profundo
+        lstm_out = x
+        lstm_units = [128, 64, 32]
+
         for i, units in enumerate(lstm_units):
-            lstm_out = LSTM(
-                units,
-                return_sequences=True if i < len(lstm_units) - 1 else False,
-                name=f"lstm_{i+1}",
-            )(x)
-            x = BatchNormalization(name=f"lstm_batch_norm_{i+1}")(lstm_out)
-            x = Dropout(0.3)(x)  # Aumentado de 0.2 a 0.3
+            # Capa LSTM bidireccional
+            lstm_layer = Bidirectional(
+                LSTM(
+                    units,
+                    return_sequences=True if i < len(lstm_units) - 1 else False,
+                    recurrent_dropout=0.2,
+                    name=f"lstm_{i+1}",
+                )
+            )(lstm_out)
+
+            # Normalización y dropout
+            x = BatchNormalization(name=f"lstm_batch_norm_{i+1}")(lstm_layer)
+            x = Dropout(0.3)(x)
+
+            # Actualizar entrada para siguiente capa
+            lstm_out = x
 
         # Capas densas adicionales
-        x = Dense(32, activation="relu", name="task_dense_1")(x)
+        x = Dense(32, activation="relu", name="task_dense_1")(lstm_out)
         x = BatchNormalization(name="task_batch_norm_1")(x)
         x = Dropout(0.2)(x)
 
@@ -218,18 +251,25 @@ class EstimacionModel:
         return [
             EarlyStopping(
                 monitor='val_loss',
-                patience=15,
-                restore_best_weights=True
+                patience=20,
+                restore_best_weights=True,
+                min_delta=1e-4
             ),
             ReduceLROnPlateau(
                 monitor='val_loss',
-                factor=0.2,
-                patience=5
+                factor=0.1,
+                patience=10,
+                min_lr=1e-6
             ),
             ModelCheckpoint(
-                'best_model.h5',
+                'models/best_model.keras',
                 monitor='val_loss',
-                save_best_only=True
+                save_best_only=True,
+                save_weights_only=False
+            ),
+            tf.keras.callbacks.TensorBoard(
+                log_dir='./logs',
+                histogram_freq=1
             )
         ]
 
@@ -260,6 +300,51 @@ class EstimacionModel:
     def predict(self, X_num, X_task, X_req):
         """Realiza predicciones"""
         return self.model.predict([X_num, X_req, X_task])
+
+    def attention_layer(self, inputs):
+        attention_weights = Dense(1, activation="tanh")(inputs)
+        attention_weights = Softmax(axis=1)(attention_weights)
+        return Multiply()([inputs, attention_weights])
+
+    def _build_temporal_branch(self):
+        temporal_input = Input(shape=(7,))  # Características temporales
+        x = Dense(64, activation="relu")(temporal_input)
+        x = BatchNormalization()(x)
+        x = Dropout(0.3)(x)
+        return temporal_input, x
+
+    def compile_model(self):
+        optimizer = tf.keras.optimizers.Adam(
+            learning_rate=self.config.get("learning_rate", 0.001),
+            beta_1=0.9,
+            beta_2=0.999,
+            epsilon=1e-07,
+            amsgrad=True,
+        )
+
+        loss = tf.keras.losses.Huber(delta=1.0)  # Más robusto que MSE
+
+        self.model.compile(
+            optimizer=optimizer,
+            loss=loss,
+            metrics=["mae", "mse", tf.keras.metrics.RootMeanSquaredError()],
+        )
+
+    def augment_data(self, X_num, X_req, y):
+        """Genera variaciones sintéticas de los datos"""
+        noise_factor = 0.05
+        num_samples = len(X_num)
+
+        # Añadir ruido gaussiano
+        X_num_noisy = X_num + np.random.normal(0, noise_factor, X_num.shape)
+        X_req_noisy = X_req + np.random.normal(0, noise_factor, X_req.shape)
+
+        # Combinar datos originales y aumentados
+        X_num_aug = np.concatenate([X_num, X_num_noisy])
+        X_req_aug = np.concatenate([X_req, X_req_noisy])
+        y_aug = np.concatenate([y, y])
+
+        return X_num_aug, X_req_aug, y_aug
 
 
 class DataPreprocessor:
