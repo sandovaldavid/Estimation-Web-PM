@@ -7,6 +7,9 @@ from sklearn.model_selection import train_test_split
 import pandas as pd
 import tensorflow as tf
 import joblib
+import json
+import os
+from datetime import datetime
 
 
 def load_and_preprocess_data():
@@ -167,6 +170,9 @@ def evaluate_model():
         print(f"Recuperación (Recall): {metrics['Recall']:.4f}")
         print(f"Puntuación F1 (F1-Score): {metrics['F1']:.4f}")
 
+        # Guardar métricas en el historial
+        save_metrics_history(metrics)
+
         return metrics
 
     except Exception as e:
@@ -174,6 +180,33 @@ def evaluate_model():
         import traceback
         print(traceback.format_exc())
         return None
+
+def save_metrics_history(metrics):
+    """Guarda las métricas en un archivo JSON como historial"""
+    # Nombre del archivo para el historial
+    history_file = "models/metrics_history.json"
+
+    # Preparar entrada con timestamp
+    metrics_entry = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "metrics": metrics,
+    }
+
+    # Cargar historial existente o crear nuevo
+    if os.path.exists(history_file):
+        with open(history_file, "r") as f:
+            history = json.load(f)
+    else:
+        history = []
+
+    # Agregar nuevas métricas
+    history.append(metrics_entry)
+
+    # Guardar historial actualizado
+    with open(history_file, "w") as f:
+        json.dump(history, f, indent=4)
+
+    print(f"\nMétricas guardadas en: {history_file}")
 
 if __name__ == "__main__":
     evaluate_model()
