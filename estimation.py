@@ -166,7 +166,7 @@ def main():
             X_num_train,
             X_num_val,
             X_req_train,
-            X_req_val,  # Añadido X_req para información del requerimiento
+            X_req_val,
             X_task_train,
             X_task_val,
             y_train,
@@ -189,16 +189,6 @@ def main():
         X_num_train_norm, scaler = model.normalize_data(X_num_train)
         X_num_val_norm = scaler.transform(X_num_val)
 
-        # Validación cruzada
-        mean_score, std_score = model.cross_validate_model(
-            X_num_train_norm, 
-            X_task_train,
-            X_req_train, 
-            y_train
-        )
-
-        print(f"CV Score: {mean_score:.4f} (+/- {std_score:.4f})")
-        
         # Entrenar modelo final
         history = model.train(
             [X_num_train_norm, X_req_train, X_task_train],
@@ -210,32 +200,17 @@ def main():
         # Realizar predicciones en conjunto de validación
         y_pred = model.predict(X_num_val_norm, X_task_val, X_req_val)
 
-        # Calcular e imprimir métricas de rendimiento
-        metrics = model.evaluate_performance(y_val, y_pred)
-        model.print_performance_metrics(metrics)
-
-        # Análisis de importancia de características (código existente...)
-        feature_names = ["Complejidad", "Prioridad", "Info Requerimiento"]
-        importance_scores = model.analyze_feature_importance(
-            X_num_train_norm, X_task_train, X_req_train, y_train, feature_names
-        )
-
-        print("\nImportancia de características:")
-        print("===============================")
-        for feature, score in importance_scores:
-            print(f"{feature}: {score:.4f}")
-
-        # Guardar modelo
-        model.mode.sumamary()
+        # Guardar modelo y preprocessors
         model.model.save("models/modelo_estimacion.keras")
+        joblib.dump(scaler, "models/scaler.pkl")
         print("Modelo guardado exitosamente")
 
-        return history, metrics
+        return history
 
     except Exception as e:
         print(f"Error durante el entrenamiento: {str(e)}")
         print(traceback.format_exc())
-    return None
+        return None
 
 if __name__ == "__main__":
     main()
